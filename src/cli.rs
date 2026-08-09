@@ -47,9 +47,33 @@ pub struct Cli {
     #[arg(long, default_value = "5s", value_parser = parse_duration, value_name = "TIME")]
     pub interval: Duration,
 
+    /// Color depth of the TUI (auto-detected; NO_COLOR is honored)
+    #[arg(long, value_enum, default_value_t = ColorMode::Auto, value_name = "MODE")]
+    pub color: ColorMode,
+
     /// Emit one JSON object per completed workload (NDJSON, disables the TUI)
     #[arg(long)]
     pub json: bool,
+}
+
+/// How much color the TUI may use. Everything but `auto` skips detection —
+/// the escape hatch for a terminal iomark guesses wrong about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ColorMode {
+    /// Detect from the environment
+    Auto,
+    /// 24-bit RGB
+    #[value(name = "truecolor", alias = "24bit", alias = "rgb")]
+    TrueColor,
+    /// The xterm 256-color palette
+    #[value(name = "256", alias = "256color")]
+    Indexed,
+    /// The 16 ANSI colors, as themed by the terminal
+    #[value(name = "ansi", alias = "16")]
+    Ansi,
+    /// No color at all
+    #[value(name = "never", alias = "off", alias = "none")]
+    Never,
 }
 
 /// Display unit for benchmark results.

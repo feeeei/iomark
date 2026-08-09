@@ -127,7 +127,15 @@ fn run(cli: Cli) -> Result<ui::Outcome> {
     };
 
     let outcome = if interactive {
-        ui::tui::run(rx, &cfg, disk.as_ref(), cli.unit, &abort, &warnings)
+        ui::tui::run(
+            rx,
+            &cfg,
+            disk.as_ref(),
+            cli.unit,
+            cli.color,
+            &abort,
+            &warnings,
+        )
     } else {
         Ok(ui::plain::run(
             rx,

@@ -89,6 +89,7 @@ Options:
       --duration <TIME>   Duration of each measured run [default: 5s]
       --warmup <TIME>     Unmeasured warmup per operation [default: 5s]
       --interval <TIME>   Pause between operations [default: 5s]
+      --color <MODE>      auto | truecolor | 256 | ansi | never [default: auto]
       --json              NDJSON output, one object per workload
   -V, --version           Print version (iomark + embedded fio)
 ```

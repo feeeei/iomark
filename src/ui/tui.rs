@@ -19,7 +19,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::abort::AbortHandle;
-use crate::cli::Unit;
+use crate::cli::{ColorMode, Unit};
 use crate::disk::{DiskInfo, human_bytes};
 use crate::fio::{LiveRate, Op};
 use crate::runner::{Cell, Config, Event, OpResult, Phase};
@@ -46,11 +46,20 @@ pub fn run(
     cfg: &Config,
     disk: Option<&DiskInfo>,
     unit: Unit,
+    color: ColorMode,
     abort: &Arc<AbortHandle>,
     warnings: &[String],
 ) -> Result<Outcome> {
+    // crossterm drops every color sequence on the floor when NO_COLOR is set.
+    // That is the right default, but an explicit --color is a deliberate
+    // override and has to reach the terminal.
+    match color {
+        ColorMode::Auto => {}
+        ColorMode::Never => ratatui::crossterm::style::force_color_output(false),
+        _ => ratatui::crossterm::style::force_color_output(true),
+    }
     let mut terminal = ratatui::init();
-    let mut app = App::new(cfg, unit);
+    let mut app = App::new(cfg, unit, color);
     let result = event_loop(&mut terminal, &rx, &mut app, cfg, disk, abort, warnings);
     // Always restore the terminal before touching stderr.
     ratatui::restore();
@@ -164,7 +173,7 @@ struct App {
 }
 
 impl App {
-    fn new(cfg: &Config, unit: Unit) -> Self {
+    fn new(cfg: &Config, unit: Unit, color: ColorMode) -> Self {
         // Saturating arithmetic: absurd --duration values must not panic here.
         let ops = cfg.cells().len() as u32;
         let per_op = cfg
@@ -181,7 +190,7 @@ impl App {
             failure: None,
             bench_started: None,
             planned,
-            pal: Palette::detect(),
+            pal: Palette::new(color),
         }
     }
 
@@ -270,71 +279,180 @@ impl App {
 // ---------------------------------------------------------------------------
 // Theme
 
-/// btop-style palette: low-saturation gradients on truecolor terminals,
-/// plain ANSI colors elsewhere.
+/// How much color the terminal can render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Depth {
+    /// None at all: NO_COLOR, a `dumb` terminal, or `--color never`.
+    None,
+    /// The 16 ANSI colors, whose actual hues come from the user's theme.
+    Ansi,
+    /// The xterm 256-color palette — coarse, but still a gradient.
+    Indexed,
+    /// 24-bit RGB.
+    TrueColor,
+}
+
+impl Depth {
+    fn detect(mode: ColorMode) -> Self {
+        Self::resolve(mode, |key| std::env::var(key).ok())
+    }
+
+    /// Detection has to be optimistic. `COLORTERM` is the only portable
+    /// signal that a terminal speaks 24-bit color, and it is *local* to the
+    /// emulator: ssh does not forward it (it is not in the default
+    /// `SendEnv`), sudo strips it, and `docker run` never sets it. Treating
+    /// its absence as "no truecolor" is what made this binary paint a smooth
+    /// gradient on a local macOS terminal and two flat ANSI colors on the
+    /// Linux box behind ssh. So assume 24-bit — like btop does — and only
+    /// step down for terminals known not to handle it.
+    ///
+    /// `env` is injected so the policy can be unit-tested.
+    fn resolve(mode: ColorMode, env: impl Fn(&str) -> Option<String>) -> Self {
+        match mode {
+            ColorMode::TrueColor => return Depth::TrueColor,
+            ColorMode::Indexed => return Depth::Indexed,
+            ColorMode::Ansi => return Depth::Ansi,
+            ColorMode::Never => return Depth::None,
+            ColorMode::Auto => {}
+        }
+
+        let var = |key: &str| env(key).filter(|v| !v.is_empty());
+        // https://no-color.org — any non-empty value opts out. crossterm
+        // enforces this at the write layer too; deciding it here as well keeps
+        // the palette honest about what the user will actually see.
+        if var("NO_COLOR").is_some() {
+            return Depth::None;
+        }
+
+        let term = var("TERM").unwrap_or_default().to_ascii_lowercase();
+        // TERM is normally unset under Windows consoles; anywhere else an
+        // empty or `dumb` TERM means a terminal that cannot even do ANSI.
+        if !cfg!(windows) && (term.is_empty() || term == "dumb") {
+            return Depth::None;
+        }
+
+        let colorterm = var("COLORTERM").unwrap_or_default().to_ascii_lowercase();
+        if colorterm.contains("truecolor") || colorterm.contains("24bit") {
+            return Depth::TrueColor;
+        }
+        // terminfo's direct-color entries (xterm-direct, tmux-direct, …).
+        if term.ends_with("-direct") {
+            return Depth::TrueColor;
+        }
+
+        // The terminals that genuinely cannot do 24-bit:
+        //   * the Linux/BSD text console — 16 colors and no palette to speak of
+        if matches!(term.as_str(), "linux" | "console" | "ansi") || term.starts_with("vt") {
+            return Depth::Ansi;
+        }
+        //   * Apple's Terminal.app — 256 colors, ignores `38;2` outright
+        if var("TERM_PROGRAM").as_deref() == Some("Apple_Terminal") {
+            return Depth::Indexed;
+        }
+        //   * GNU screen before 5.0 — swallows the sequence. tmux reports the
+        //     same TERM but quantizes 24-bit input itself, so it is fine.
+        if term.starts_with("screen") && var("TMUX").is_none() {
+            return Depth::Indexed;
+        }
+
+        Depth::TrueColor
+    }
+}
+
+/// btop-style palette: low-saturation gradients, quantized to whatever the
+/// terminal can actually render.
 #[derive(Clone, Copy)]
 struct Palette {
-    truecolor: bool,
+    depth: Depth,
 }
 
 impl Palette {
-    fn detect() -> Self {
-        let truecolor = std::env::var("COLORTERM")
-            .map(|v| {
-                let v = v.to_ascii_lowercase();
-                v.contains("truecolor") || v.contains("24bit")
-            })
-            .unwrap_or(false);
-        Palette { truecolor }
+    fn new(mode: ColorMode) -> Self {
+        Palette {
+            depth: Depth::detect(mode),
+        }
     }
 
-    fn pick(self, rgb: Color, fallback: Color) -> Color {
-        if self.truecolor { rgb } else { fallback }
+    /// `rgb` is the intended color, `ansi` the nearest of the 16 named ones.
+    fn pick(self, rgb: (u8, u8, u8), ansi: Color) -> Color {
+        match self.depth {
+            Depth::TrueColor => Color::Rgb(rgb.0, rgb.1, rgb.2),
+            Depth::Indexed => Color::Indexed(xterm256(rgb)),
+            Depth::Ansi => ansi,
+            Depth::None => Color::Reset,
+        }
     }
 
     fn border(self) -> Color {
-        self.pick(Color::Rgb(68, 76, 72), Color::DarkGray)
+        self.pick((68, 76, 72), Color::DarkGray)
     }
     fn title(self) -> Color {
-        self.pick(Color::Rgb(152, 195, 121), Color::Green)
+        self.pick((152, 195, 121), Color::Green)
     }
     fn text(self) -> Color {
-        self.pick(Color::Rgb(214, 220, 224), Color::White)
+        self.pick((214, 220, 224), Color::White)
     }
     fn dim(self) -> Color {
-        self.pick(Color::Rgb(124, 132, 132), Color::DarkGray)
+        self.pick((124, 132, 132), Color::DarkGray)
     }
     fn live(self) -> Color {
-        self.pick(Color::Rgb(229, 192, 123), Color::Yellow)
+        self.pick((229, 192, 123), Color::Yellow)
     }
     fn warn(self) -> Color {
-        self.pick(Color::Rgb(198, 156, 88), Color::Yellow)
+        self.pick((198, 156, 88), Color::Yellow)
     }
     fn error(self) -> Color {
-        self.pick(Color::Rgb(224, 108, 117), Color::Red)
+        self.pick((224, 108, 117), Color::Red)
     }
     fn track(self) -> Color {
-        self.pick(Color::Rgb(54, 60, 57), Color::DarkGray)
+        self.pick((54, 60, 57), Color::DarkGray)
     }
 
     /// Bar/progress gradient along `t` in [0, 1]; `dimmed` for live values.
     fn grad(self, t: f64, dimmed: bool) -> Color {
-        if !self.truecolor {
-            return if dimmed {
-                Color::DarkGray
-            } else if t > 0.7 {
-                Color::Yellow
-            } else {
-                Color::Green
-            };
-        }
         let (r, g, b) = gradient(t);
         let f = if dimmed { 0.55 } else { 1.0 };
-        Color::Rgb(
-            (f64::from(r) * f) as u8,
-            (f64::from(g) * f) as u8,
-            (f64::from(b) * f) as u8,
-        )
+        let scale = |c: u8| (f64::from(c) * f) as u8;
+        let ansi = if dimmed {
+            Color::DarkGray
+        } else if t > 0.7 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        self.pick((scale(r), scale(g), scale(b)), ansi)
+    }
+}
+
+/// Nearest xterm-256 index for an RGB triple. The candidates are the 6×6×6
+/// color cube (16..232) and the 24-step gray ramp (232..), never 0..16 —
+/// those are whatever the user's theme makes of them.
+fn xterm256((r, g, b): (u8, u8, u8)) -> u8 {
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    let level = |v: u8| {
+        LEVELS
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, l)| l.abs_diff(v))
+            .map_or(0, |(i, _)| i)
+    };
+    let dist = |c: (u8, u8, u8)| {
+        let d = |x: u8, y: u8| i32::from(x.abs_diff(y)).pow(2);
+        d(c.0, r) + d(c.1, g) + d(c.2, b)
+    };
+
+    let (ri, gi, bi) = (level(r), level(g), level(b));
+    let cube = (LEVELS[ri], LEVELS[gi], LEVELS[bi]);
+
+    // Ramp shades are 8, 18, … 238; subtracting 3 makes the division round.
+    let avg = usize::from((u16::from(r) + u16::from(g) + u16::from(b)) / 3);
+    let ramp = (avg.saturating_sub(3) / 10).min(23);
+    let shade = (8 + ramp * 10) as u8;
+
+    if dist((shade, shade, shade)) < dist(cube) {
+        232 + ramp as u8
+    } else {
+        (16 + 36 * ri + 6 * gi + bi) as u8
     }
 }
 
@@ -839,4 +957,128 @@ fn shorten_path(path: &std::path::Path, max: usize) -> String {
     }
     let tail: String = s.chars().skip(count + 1 - max.max(1)).collect();
     format!("…{tail}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    fn depth(mode: ColorMode, env: &[(&str, &str)]) -> Depth {
+        Depth::resolve(mode, |key| {
+            env.iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_owned())
+        })
+    }
+
+    #[test]
+    fn a_terminal_that_hides_colorterm_still_gets_truecolor() {
+        // The regression this guards: ssh does not forward COLORTERM, so the
+        // same binary drew a gradient locally and two flat colors remotely.
+        assert_eq!(
+            depth(ColorMode::Auto, &[("TERM", "xterm-256color")]),
+            Depth::TrueColor
+        );
+        assert_eq!(
+            depth(ColorMode::Auto, &[("TERM", "xterm")]),
+            Depth::TrueColor
+        );
+    }
+
+    #[test]
+    fn takes_the_explicit_truecolor_signals() {
+        assert_eq!(
+            depth(
+                ColorMode::Auto,
+                &[("TERM", "xterm"), ("COLORTERM", "TrueColor")]
+            ),
+            Depth::TrueColor
+        );
+        assert_eq!(
+            depth(ColorMode::Auto, &[("TERM", "xterm-direct")]),
+            Depth::TrueColor
+        );
+    }
+
+    #[test]
+    fn steps_down_for_terminals_without_24_bit() {
+        assert_eq!(depth(ColorMode::Auto, &[("TERM", "linux")]), Depth::Ansi);
+        assert_eq!(
+            depth(
+                ColorMode::Auto,
+                &[
+                    ("TERM", "xterm-256color"),
+                    ("TERM_PROGRAM", "Apple_Terminal")
+                ]
+            ),
+            Depth::Indexed
+        );
+        assert_eq!(
+            depth(ColorMode::Auto, &[("TERM", "screen-256color")]),
+            Depth::Indexed
+        );
+        // tmux reports the same TERM but quantizes 24-bit input itself.
+        assert_eq!(
+            depth(
+                ColorMode::Auto,
+                &[("TERM", "screen-256color"), ("TMUX", "/tmp/tmux-0/default")]
+            ),
+            Depth::TrueColor
+        );
+    }
+
+    #[test]
+    fn no_color_wins_over_detection_but_loses_to_the_flag() {
+        assert_eq!(
+            depth(
+                ColorMode::Auto,
+                &[("TERM", "xterm-256color"), ("NO_COLOR", "1")]
+            ),
+            Depth::None
+        );
+        assert_eq!(
+            depth(ColorMode::TrueColor, &[("NO_COLOR", "1")]),
+            Depth::TrueColor
+        );
+        // An empty NO_COLOR does not count as set (no-color.org).
+        assert_eq!(
+            depth(
+                ColorMode::Auto,
+                &[("TERM", "xterm-256color"), ("NO_COLOR", "")]
+            ),
+            Depth::TrueColor
+        );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_dumb_terminal_gets_no_color() {
+        assert_eq!(depth(ColorMode::Auto, &[("TERM", "dumb")]), Depth::None);
+        assert_eq!(depth(ColorMode::Auto, &[]), Depth::None);
+    }
+
+    #[test]
+    fn quantizes_to_the_xterm_cube_and_gray_ramp() {
+        assert_eq!(xterm256((0, 0, 0)), 16);
+        assert_eq!(xterm256((255, 255, 255)), 231);
+        assert_eq!(xterm256((255, 0, 0)), 196);
+        assert_eq!(xterm256((128, 128, 128)), 244);
+    }
+
+    #[test]
+    fn the_gradient_survives_the_256_color_fallback() {
+        let pal = Palette {
+            depth: Depth::Indexed,
+        };
+        let steps: HashSet<Color> = (0..=20)
+            .map(|i| pal.grad(f64::from(i) / 20.0, false))
+            .collect();
+        assert!(
+            steps.len() >= 4,
+            "gradient collapsed to {} colors",
+            steps.len()
+        );
+    }
 }
