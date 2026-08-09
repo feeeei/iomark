@@ -1,10 +1,11 @@
-name: CI
+name: Release
 
+# Only tags matching v* build and publish. Use the manual dispatch to
+# exercise the build matrix without cutting a release.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,7 +27,7 @@ jobs:
       - run: cargo test
 
   build:
-    name: ${{ matrix.target }}
+    name: ${{ matrix.asset }}
     needs: lint
     strategy:
       fail-fast: false
@@ -34,10 +35,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            asset: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            asset: aarch64-unknown-linux-gnu
           - os: macos-15
             target: aarch64-apple-darwin
+            asset: macos-universal
             universal: true
     runs-on: ${{ matrix.os }}
     steps:
@@ -65,19 +69,17 @@ jobs:
           lipo -info dist/iomark
           ./dist/iomark --version
       - name: Package artifact
-        env:
-          # On pull_request this is "<pr>/merge" — strip the slash.
-          REF: ${{ github.ref_name }}
         run: |
           mkdir -p dist
           if [ ! -f dist/iomark ]; then
             cp target/${{ matrix.target }}/release/iomark dist/iomark
           fi
-          name="iomark-${REF//\//-}-${{ matrix.universal && 'macos-universal' || matrix.target }}"
-          tar -C dist -czf "$name.tar.gz" iomark
+          # Asset names carry no version: the installer can then fetch
+          # /releases/latest/download/<asset> without querying the API.
+          tar -C dist -czf "iomark-${{ matrix.asset }}.tar.gz" iomark
       - uses: actions/upload-artifact@v4
         with:
-          name: iomark-${{ matrix.universal && 'macos-universal' || matrix.target }}
+          name: iomark-${{ matrix.asset }}
           path: iomark-*.tar.gz
 
   build-windows:
@@ -103,11 +105,9 @@ jobs:
       - run: cargo build --release --target x86_64-pc-windows-gnu
       - run: ./target/x86_64-pc-windows-gnu/release/iomark.exe --version
       - name: Package artifact
-        env:
-          REF: ${{ github.ref_name }}
         run: |
           mkdir -p dist && cp target/x86_64-pc-windows-gnu/release/iomark.exe dist/
-          cd dist && 7z a "../iomark-${REF//\//-}-x86_64-pc-windows-gnu.zip" iomark.exe
+          cd dist && 7z a ../iomark-x86_64-pc-windows-gnu.zip iomark.exe
       - uses: actions/upload-artifact@v4
         with:
           name: iomark-x86_64-pc-windows-gnu
@@ -137,11 +137,9 @@ jobs:
       - run: CC=clang cargo build --release --target aarch64-pc-windows-gnullvm
       - run: ./target/aarch64-pc-windows-gnullvm/release/iomark.exe --version
       - name: Package artifact
-        env:
-          REF: ${{ github.ref_name }}
         run: |
           mkdir -p dist && cp target/aarch64-pc-windows-gnullvm/release/iomark.exe dist/
-          cd dist && 7z a "../iomark-${REF//\//-}-aarch64-pc-windows-gnullvm.zip" iomark.exe
+          cd dist && 7z a ../iomark-aarch64-pc-windows-gnullvm.zip iomark.exe
       - uses: actions/upload-artifact@v4
         with:
           name: iomark-aarch64-pc-windows-gnullvm
@@ -157,11 +155,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: Checksums and release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: .github/release-notes.sh artifacts "$TAG" > notes.md
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          name: iomark ${{ github.ref_name }}
+          body_path: notes.md
+          # Appended below body_path by the GitHub API.
           generate_release_notes: true
+          files: |
+            artifacts/iomark-*
+            artifacts/SHA256SUMS
