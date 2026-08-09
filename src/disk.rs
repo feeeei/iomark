@@ -186,8 +186,9 @@ mod imp {
     use windows_sys::Win32::Foundation::MAX_PATH;
     use windows_sys::Win32::NetworkManagement::WNet::WNetGetConnectionW;
     use windows_sys::Win32::Storage::FileSystem::{
-        DRIVE_REMOTE, GetDiskFreeSpaceExW, GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
+        GetDiskFreeSpaceExW, GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
     };
+    use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
     use super::DiskInfo;
 
