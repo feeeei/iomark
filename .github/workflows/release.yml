@@ -9,9 +9,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Stamps `iomark --version` with the tag being released; build.rs aborts if
-  # the tag and Cargo.toml disagree. Empty on workflow_dispatch, where
-  # github.ref_name is a branch.
+  # The tag is the only source of the released version number; build.rs
+  # stamps it into `iomark --version`. Empty on workflow_dispatch, where
+  # github.ref_name is a branch — build.rs then falls back to git describe.
   IOMARK_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
 jobs:

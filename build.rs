@@ -48,25 +48,71 @@ const UNIX_CONFIGURE_FLAGS: &[&str] = &["--disable-shm"];
 
 /// Emit the version `--version` reports.
 ///
-/// Release builds pass the git tag in `IOMARK_RELEASE_TAG` so the artifact
-/// names its own release. The tag stays authoritative only as long as it
-/// agrees with Cargo.toml: a mismatch aborts the build instead of shipping a
-/// binary whose `--version` contradicts the crate metadata.
+/// The git tag is the single source of truth, in this order:
+///
+/// 1. `IOMARK_RELEASE_TAG` — the tag CI is building (`v0.2.0` -> `0.2.0`).
+/// 2. `git describe --tags` — dev builds name the last tag plus the distance
+///    from it, e.g. `0.2.0-3-gab12cd4-dirty`, so a local binary is always
+///    traceable to a commit.
+/// 3. `CARGO_PKG_VERSION` — no tag reachable and no git (source tarballs).
+///
+/// Cargo.toml's `version` is deliberately NOT authoritative: Cargo requires
+/// the field, but keeping a second number in sync by hand is exactly the
+/// bookkeeping the tag is meant to replace.
 fn emit_version() {
     println!("cargo:rerun-if-env-changed=IOMARK_RELEASE_TAG");
-    let crate_version = env::var("CARGO_PKG_VERSION").unwrap();
-    let tag = env::var("IOMARK_RELEASE_TAG").unwrap_or_default();
-    let tag = tag.trim();
-
-    if !tag.is_empty() {
-        let tagged = tag.strip_prefix('v').unwrap_or(tag);
-        assert!(
-            tagged == crate_version,
-            "release tag {tag} does not match the Cargo.toml version {crate_version} — \
-             bump `version` in Cargo.toml (or retag) so `iomark --version` matches the release"
-        );
+    // Dev builds must notice when HEAD moves or a tag appears. `.git/HEAD`
+    // only covers branch switches — it still reads `ref: refs/heads/main`
+    // after a commit — so watch the reflog, which every HEAD movement writes.
+    // Only watch paths that exist: `git gc` packs tags away into packed-refs,
+    // and rerun-if-changed on a missing path rebuilds on every invocation.
+    for path in [
+        ".git/HEAD",
+        ".git/logs/HEAD",
+        ".git/refs/tags",
+        ".git/packed-refs",
+    ] {
+        if Path::new(path).exists() {
+            println!("cargo:rerun-if-changed={path}");
+        }
     }
-    println!("cargo:rustc-env=IOMARK_VERSION={crate_version}");
+
+    let version = release_tag()
+        .or_else(git_describe)
+        .unwrap_or_else(|| env::var("CARGO_PKG_VERSION").unwrap());
+    println!("cargo:rustc-env=IOMARK_VERSION={version}");
+}
+
+/// The tag CI is building, if any. Tags are `vX.Y.Z`; the `v` is display noise.
+fn release_tag() -> Option<String> {
+    let tag = env::var("IOMARK_RELEASE_TAG").ok()?;
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return None;
+    }
+    Some(strip_v(tag))
+}
+
+/// `None` when git is missing, this is not a repo, or no tag is reachable —
+/// all normal for release tarballs and shallow CI checkouts.
+fn git_describe() -> Option<String> {
+    let out = Command::new("git")
+        .args(["describe", "--tags", "--dirty"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let described = String::from_utf8(out.stdout).ok()?;
+    let described = described.trim();
+    if described.is_empty() {
+        return None;
+    }
+    Some(strip_v(described))
+}
+
+fn strip_v(tag: &str) -> String {
+    tag.strip_prefix('v').unwrap_or(tag).to_owned()
 }
 
 fn main() {

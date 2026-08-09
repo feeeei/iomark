@@ -1,5 +1,8 @@
 [package]
 name = "iomark"
+# Not the released version — `iomark --version` comes from the git tag (see
+# emit_version() in build.rs). This is only the fallback for builds with no
+# tag and no git history, so it needs no bump per release.
 version = "0.1.0"
 edition = "2024"
 description = "A CrystalDiskMark-style disk benchmark for the terminal, powered by an embedded fio"
