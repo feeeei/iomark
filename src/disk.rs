@@ -171,8 +171,8 @@ mod imp {
             volume: None,
             mount,
             file_system,
-            total: u64::from(vfs.f_blocks).saturating_mul(u64::from(frag)),
-            available: u64::from(vfs.f_bavail).saturating_mul(u64::from(frag)),
+            total: vfs.f_blocks.saturating_mul(frag),
+            available: vfs.f_bavail.saturating_mul(frag),
         })
     }
 }
