@@ -105,6 +105,12 @@ fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
         // Cross-building the other macOS architecture on the same host.
         extra_cflags.push_str(&format!(" -arch {arch}"));
     }
+    if cfg_windows() && env::var("CC").is_ok_and(|cc| cc.contains("clang")) {
+        // MSYS2's posix-threads GCC links libwinpthread implicitly; MinGW
+        // clang does not, so without -pthread every pthread/clock_gettime
+        // configure probe fails to link and configure aborts.
+        extra_cflags.push_str(" -pthread");
+    }
 
     let mut configure = Command::new("sh");
     configure
@@ -119,6 +125,13 @@ fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
         configure.arg(format!("--cc={cc}"));
     }
     run(configure, "fio configure");
+    // fio auto-enables CodeView/PDB debug info whenever the toolchain passes
+    // the "pdb" probe (any CC accepting -gcodeview with an lld on PATH — the
+    // probe's `test "pdb" != "no"` guard is an upstream typo that always runs
+    // it). GCC 15's CodeView emitter produces assembly GAS rejects for
+    // IPA-cloned functions, and the embedded objects need no debug info at
+    // all, so drop the knob before make can see it.
+    strip_config_sym(build_dir, "CONFIG_PDB");
 
     fs::write(build_dir.join("printvar.mk"), PRINTVAR_MK).unwrap();
     // Generate FIO-VERSION-FILE up front so its side-channel output cannot
@@ -223,6 +236,25 @@ fn run(mut cmd: Command, what: &str) {
 /// True when the *target* (not the build host) is a Unix platform.
 fn cfg_unix() -> bool {
     env::var("CARGO_CFG_UNIX").is_ok()
+}
+
+/// True when the *target* (not the build host) is Windows.
+fn cfg_windows() -> bool {
+    env::var("CARGO_CFG_WINDOWS").is_ok()
+}
+
+/// Removes an `output_sym`'d `NAME=y` line from the generated
+/// config-host.mak, turning the corresponding Makefile `ifdef` off.
+fn strip_config_sym(build_dir: &Path, sym: &str) {
+    let path = build_dir.join("config-host.mak");
+    let mak = fs::read_to_string(&path).expect("config-host.mak missing after configure");
+    let prefix = format!("{sym}=");
+    let kept: String = mak
+        .lines()
+        .filter(|line| !line.starts_with(&prefix))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    fs::write(&path, kept).unwrap();
 }
 
 /// Identifies the vendored fio sources: submodule commit plus a hash of any
