@@ -1,18 +1,15 @@
 <div align="center">
 
-<h1>iomark</h1>
+# iomark
 
-<p>
-  <b>A CrystalDiskMark-style disk benchmark for the terminal.</b><br>
-  One static binary — <a href="https://github.com/axboe/fio">fio</a> embedded as
-  the measurement engine, a btop-style TUI on top.
-</p>
+**A CrystalDiskMark-style disk benchmark for the terminal.**<br>
+One static binary — [fio](https://github.com/axboe/fio) embedded as the
+measurement engine, a btop-style TUI on top.
 
-<p>
-  <a href="https://github.com/feeeei/iomark/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/feeeei/iomark?style=flat-square&label=release&color=2ea043"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-444?style=flat-square">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPL--2.0-444?style=flat-square"></a>
-</p>
+[![Release](https://img.shields.io/github/v/release/feeeei/iomark?label=release&color=2ea043)](https://github.com/feeeei/iomark/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-4c8eda)](https://github.com/feeeei/iomark/releases/latest)
+[![Engine](https://img.shields.io/badge/engine-fio%20embedded-6f42c1)](https://github.com/axboe/fio)
+[![License](https://img.shields.io/badge/license-GPL--2.0-d29922)](LICENSE)
 
 <img src="docs/screenshot.png" alt="iomark benchmarking a disk in the terminal">
 
