@@ -46,6 +46,29 @@ const CONFIGURE_FLAGS: &[&str] = &[
 /// segments (tiny quota on macOS) — mmap memory dies with the process.
 const UNIX_CONFIGURE_FLAGS: &[&str] = &["--disable-shm"];
 
+/// Emit the version `--version` reports.
+///
+/// Release builds pass the git tag in `IOMARK_RELEASE_TAG` so the artifact
+/// names its own release. The tag stays authoritative only as long as it
+/// agrees with Cargo.toml: a mismatch aborts the build instead of shipping a
+/// binary whose `--version` contradicts the crate metadata.
+fn emit_version() {
+    println!("cargo:rerun-if-env-changed=IOMARK_RELEASE_TAG");
+    let crate_version = env::var("CARGO_PKG_VERSION").unwrap();
+    let tag = env::var("IOMARK_RELEASE_TAG").unwrap_or_default();
+    let tag = tag.trim();
+
+    if !tag.is_empty() {
+        let tagged = tag.strip_prefix('v').unwrap_or(tag);
+        assert!(
+            tagged == crate_version,
+            "release tag {tag} does not match the Cargo.toml version {crate_version} — \
+             bump `version` in Cargo.toml (or retag) so `iomark --version` matches the release"
+        );
+    }
+    println!("cargo:rustc-env=IOMARK_VERSION={crate_version}");
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -57,6 +80,8 @@ fn main() {
     println!("cargo:rerun-if-changed=third_party/fio");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CC");
+
+    emit_version();
 
     if !fio_src.join("configure").exists() {
         panic!("third_party/fio is missing or empty — run `git submodule update --init` first");

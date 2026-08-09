@@ -22,10 +22,11 @@ use clap::Parser;
 use crate::abort::AbortHandle;
 use crate::cli::Cli;
 
-/// Version string shown by `--version`: crate version plus embedded fio.
+/// Version string shown by `--version`: release version plus embedded fio.
+/// build.rs pins the first half to the git tag on release builds.
 pub(crate) fn version() -> &'static str {
     concat!(
-        env!("CARGO_PKG_VERSION"),
+        env!("IOMARK_VERSION"),
         " (",
         env!("IOMARK_FIO_VERSION"),
         ")"

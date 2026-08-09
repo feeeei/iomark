@@ -9,6 +9,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Stamps `iomark --version` with the tag being released; build.rs aborts if
+  # the tag and Cargo.toml disagree. Empty on workflow_dispatch, where
+  # github.ref_name is a branch.
+  IOMARK_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
 jobs:
   lint:
@@ -56,7 +60,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libaio-dev zlib1g-dev
       - run: cargo build --release --target ${{ matrix.target }}
       - name: Smoke test
-        run: ./target/${{ matrix.target }}/release/iomark --version
+        run: .github/check-version.sh ./target/${{ matrix.target }}/release/iomark
       - name: Build macOS universal binary
         if: matrix.universal
         run: |
@@ -67,7 +71,7 @@ jobs:
             target/x86_64-apple-darwin/release/iomark \
             -output dist/iomark
           lipo -info dist/iomark
-          ./dist/iomark --version
+          .github/check-version.sh ./dist/iomark
       - name: Package artifact
         run: |
           mkdir -p dist
@@ -103,7 +107,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
       - run: cargo build --release --target x86_64-pc-windows-gnu
-      - run: ./target/x86_64-pc-windows-gnu/release/iomark.exe --version
+      - run: .github/check-version.sh ./target/x86_64-pc-windows-gnu/release/iomark.exe
       - name: Package artifact
         run: |
           mkdir -p dist && cp target/x86_64-pc-windows-gnu/release/iomark.exe dist/
@@ -135,7 +139,7 @@ jobs:
         with:
           targets: aarch64-pc-windows-gnullvm
       - run: CC=clang cargo build --release --target aarch64-pc-windows-gnullvm
-      - run: ./target/aarch64-pc-windows-gnullvm/release/iomark.exe --version
+      - run: .github/check-version.sh ./target/aarch64-pc-windows-gnullvm/release/iomark.exe
       - name: Package artifact
         run: |
           mkdir -p dist && cp target/aarch64-pc-windows-gnullvm/release/iomark.exe dist/
