@@ -157,10 +157,16 @@ if is_windows; then BIN=iomark.exe; else BIN=iomark; fi
 # assets and SHA256SUMS side by side.
 if [ -n "${IOMARK_BASE_URL:-}" ]; then
   BASE_URL=${IOMARK_BASE_URL%/}
+elif [ "$REPO" != feeeei/iomark ]; then
+  if [ "$VERSION" = latest ]; then
+    BASE_URL="https://github.com/$REPO/releases/latest/download"
+  else
+    BASE_URL="https://github.com/$REPO/releases/download/$VERSION"
+  fi
 elif [ "$VERSION" = latest ]; then
-  BASE_URL="https://github.com/$REPO/releases/latest/download"
+  BASE_URL="https://iomark.dev/releases/latest/download"
 else
-  BASE_URL="https://github.com/$REPO/releases/download/$VERSION"
+  BASE_URL="https://iomark.dev/releases/download/$VERSION"
 fi
 
 # ----------------------------------------------------------------- download

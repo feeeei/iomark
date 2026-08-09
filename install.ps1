@@ -91,11 +91,17 @@ while ($i -lt $rest.Count) {
 
 if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA 'Programs\iomark' }
 if (-not $baseUrl) {
-    $baseUrl = if ($version -eq 'latest') {
+    $baseUrl = if ($repo -ne 'feeeei/iomark' -and $version -eq 'latest') {
         "https://github.com/$repo/releases/latest/download"
     }
-    else {
+    elseif ($repo -ne 'feeeei/iomark') {
         "https://github.com/$repo/releases/download/$version"
+    }
+    elseif ($version -eq 'latest') {
+        'https://iomark.dev/releases/latest/download'
+    }
+    else {
+        "https://iomark.dev/releases/download/$version"
     }
 }
 $baseUrl = $baseUrl.TrimEnd('/')
