@@ -37,6 +37,40 @@ Press `K` for the IOPS view, which also shows mean latency per cell.
 - **Scriptable** — `--json` emits one NDJSON object per completed workload;
   non-TTY output degrades to plain lines for CI logs.
 
+## Install
+
+macOS / Linux (also Git Bash and MSYS2 on Windows) — installs into
+`~/.local/bin`:
+
+```sh
+curl -fsSL https://iomark.dev | sh
+```
+
+Windows PowerShell — installs into `%LOCALAPPDATA%\Programs\iomark` and adds
+it to your user `PATH`:
+
+```powershell
+irm https://iomark.dev/install.ps1 | iex
+```
+
+Just want a number, with nothing left behind? `quick` downloads to a temp
+directory, runs the benchmark and deletes the binary:
+
+```sh
+curl -fsSL https://iomark.dev | sh -s -- quick            # current directory
+curl -fsSL https://iomark.dev | sh -s -- quick /mnt/data  # a specific disk
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://iomark.dev/install.ps1))) quick D:
+```
+
+The installer verifies the download against the release's `SHA256SUMS`.
+`--version v0.1.0` pins a release, `--dir <path>` picks the install
+directory, and `uninstall` removes the binary again. Prebuilt archives for
+every platform are also on the
+[releases page](https://github.com/feeeei/iomark/releases).
+
 ## Usage
 
 ```sh
