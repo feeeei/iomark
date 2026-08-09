@@ -521,11 +521,13 @@ fn draw_header(
     warnings: &[String],
 ) {
     let pal = app.pal;
-    let block = panel(pal).title(
-        Line::from(format!(" iomark {} ", crate::version()))
-            .fg(pal.title())
-            .bold(),
-    );
+    let block = panel(pal)
+        .title(
+            Line::from(format!(" iomark {} ", crate::version()))
+                .fg(pal.title())
+                .bold(),
+        )
+        .title_bottom(Line::from(" by: feeeei ").fg(pal.dim()).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
