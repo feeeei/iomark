@@ -1,60 +1,58 @@
-# iomark
+<div align="center">
 
-A CrystalDiskMark-style disk benchmark for the terminal — one static binary
-with [fio](https://github.com/axboe/fio) embedded as the measurement engine
-and a btop-style TUI.
+<h1>iomark</h1>
 
-```
-╭ iomark 0.1.0 (fio-3.42) ───────────────────────────────────────────────────────────────╮
-│ disk Data (/dev/disk4s1, apfs)  ·  3.6 TiB free of 4.0 TiB                             │
-│ file 1.0 GiB  ·  3 runs × 5s  ·  warmup 5s  ·  interval 5s                             │
-╰────────────────────────────────────────────────────────────────────────────────────────╯
-╭ results ───────────────────────────────────────────────────────────────────────────────╮
-│                │            Read (MB/s)            │            Write (MB/s)           │
-│────────────────┼───────────────────────────────────┼───────────────────────────────────│
-│  SEQ1M Q8T1    │ ███████████████████████   6531.10 │ ██████████████████████▊   6273.44 │
-│────────────────┼───────────────────────────────────┼───────────────────────────────────│
-│  SEQ128K Q32T1 │ ██████████████████████▋   6489.02 │ ██████████████████████    6104.87 │
-│────────────────┼───────────────────────────────────┼───────────────────────────────────│
-│▶ RND4K Q32T16  │ ███████▎················  2411.90 │ ·······················         – │
-│────────────────┼───────────────────────────────────┼───────────────────────────────────│
-│  RND4K Q1T1    │ ·······················         – │ ·······················         – │
-╰────────────────────────────────────────────────────────────────────────────────────────╯
-╭ status ────────────────────────────────────────────────────────────────────────────────╮
-│ ▶ RND4K Q32T16 read · run 2/3             ██████▊·········  42% · ~2:41 left           │
-╰────────────────────────────────────────────────────────────────────── K unit  Q quit ──╯
-```
+<p>
+  <b>A CrystalDiskMark-style disk benchmark for the terminal.</b><br>
+  One static binary — <a href="https://github.com/axboe/fio">fio</a> embedded as
+  the measurement engine, a btop-style TUI on top.
+</p>
 
-Press `K` for the IOPS view, which also shows mean latency per cell.
+<p>
+  <a href="https://github.com/feeeei/iomark/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/feeeei/iomark?style=flat-square&label=release&color=2ea043"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-444?style=flat-square">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPL--2.0-444?style=flat-square"></a>
+</p>
+
+<img src="docs/screenshot.png" alt="iomark benchmarking a disk in the terminal">
+
+</div>
+
+## Features
 
 - **One binary, no dependencies** — fio is statically linked in; nothing is
   extracted or installed at runtime.
 - **CrystalDiskMark semantics** — same default workloads (the CDM 9
   "NVMe SSD" preset), same scoring (best of N runs), decimal MB/s. Each task
   measures read then write before moving to the next.
-- **Live TUI** — big numbers over proportional bars, updating in real time;
-  press `K` to flip between MB/s and IOPS, `Q` to quit.
+- **Live TUI** — big numbers over proportional bars, updating in real time.
+  `K` flips between MB/s and IOPS (the IOPS view also shows mean latency per
+  cell), `Q` quits.
 - **Scriptable** — `--json` emits one NDJSON object per completed workload;
   non-TTY output degrades to plain lines for CI logs.
 
 ## Install
 
-macOS / Linux (also Git Bash and MSYS2 on Windows) — installs into
-`~/.local/bin`:
+### macOS · Linux
+
+Installs into `~/.local/bin` (works in Git Bash and MSYS2 on Windows too):
 
 ```sh
 curl -fsSL https://iomark.dev | sh
 ```
 
-Windows PowerShell — installs into `%LOCALAPPDATA%\Programs\iomark` and adds
-it to your user `PATH`:
+### Windows
+
+Installs into `%LOCALAPPDATA%\Programs\iomark` and adds it to your user `PATH`:
 
 ```powershell
 irm https://iomark.dev/install.ps1 | iex
 ```
 
-Just want a number, with nothing left behind? `quick` downloads to a temp
-directory, runs the benchmark and deletes the binary:
+### Run once, install nothing
+
+`quick` downloads to a temp directory, runs the benchmark and deletes the
+binary again:
 
 ```sh
 curl -fsSL https://iomark.dev | sh -s -- quick            # current directory
@@ -66,10 +64,9 @@ curl -fsSL https://iomark.dev | sh -s -- quick /mnt/data  # a specific disk
 ```
 
 The installer verifies the download against the release's `SHA256SUMS`.
-`--version v0.1.0` pins a release, `--dir <path>` picks the install
-directory, and `uninstall` removes the binary again. Prebuilt archives for
-every platform are also on the
-[releases page](https://github.com/feeeei/iomark/releases).
+`--version <tag>` pins a release, `--dir <path>` picks the install directory,
+and `uninstall` removes the binary again. Prebuilt archives for every platform
+are also on the [releases page](https://github.com/feeeei/iomark/releases).
 
 ## Usage
 
@@ -79,23 +76,24 @@ iomark /path/to/mount      # benchmark a specific disk
 iomark --json > out.ndjson # machine-readable results
 ```
 
-```
-Options:
-      --tasks <LIST>      Comma-separated workloads: (SEQ|RND)<block>Q<depth>T<threads>
-                          [default: SEQ1MQ8T1,SEQ128KQ32T1,RND4KQ32T16,RND4KQ1T1]
-      --type <UNIT>       Initial display unit (K toggles in the TUI) [default: MB/s]
-      --runs <N>          Measured runs per operation, best kept [default: 3]
-      --size <SIZE>       Test file size, binary units [default: 1GiB]
-      --duration <TIME>   Duration of each measured run [default: 5s]
-      --warmup <TIME>     Unmeasured warmup per operation [default: 5s]
-      --interval <TIME>   Pause between operations [default: 5s]
-      --color <MODE>      auto | truecolor | 256 | ansi | never [default: auto]
-      --json              NDJSON output, one object per workload
-  -V, --version           Print version (iomark + embedded fio)
-```
+| Option | Description | Default |
+|---|---|---|
+| `<TARGET_DIR>` | Directory to benchmark (the test file is created there) | `.` |
+| `--tasks <LIST>` | Comma-separated workloads: `(SEQ\|RND)<block>Q<depth>T<threads>` | CDM 9 preset |
+| `--type <UNIT>` | Initial display unit, `MB/s` or `IOPS` (`K` toggles in the TUI) | `MB/s` |
+| `--runs <N>` | Measured runs per operation, best kept | `3` |
+| `--size <SIZE>` | Test file size, binary units | `1GiB` |
+| `--duration <TIME>` | Duration of each measured run | `5s` |
+| `--warmup <TIME>` | Unmeasured warmup per operation (`0s` disables) | `5s` |
+| `--interval <TIME>` | Pause between operations (`0s` disables) | `5s` |
+| `--color <MODE>` | `auto`, `truecolor`, `256`, `ansi` or `never` | `auto` |
+| `--json` | NDJSON output, one object per workload | off |
+| `-V, --version` | Print version (iomark + embedded fio) | |
 
-Custom workloads follow the same grammar as the presets: `RND8KQ4T4` is
-random 8 KiB blocks at queue depth 4 with 4 threads.
+The default task list is CrystalDiskMark 9's "NVMe SSD" preset,
+`SEQ1MQ8T1,SEQ128KQ32T1,RND4KQ32T16,RND4KQ1T1`. Custom workloads follow the
+same grammar: `RND8KQ4T4` is random 8 KiB blocks at queue depth 4 with 4
+threads.
 
 ## Building
 
@@ -127,7 +125,7 @@ on Ctrl-C.
 Per-platform fio engines: `libaio` (Linux), `posixaio` (macOS), `windowsaio`
 (Windows), always with `direct=1`.
 
-**Comparability notes**
+### Comparability notes
 
 - MB/s is decimal (bytes ÷ 10⁶), matching CDM. IOPS and latency come from
   fio's job statistics.
