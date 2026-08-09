@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: sudo apt-get update && sudo apt-get install -y libaio-dev zlib1g-dev
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  build:
+    name: ${{ matrix.target }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+            universal: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}${{ matrix.universal && ',x86_64-apple-darwin' || '' }}
+      - name: Install fio build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libaio-dev zlib1g-dev
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Smoke test
+        run: ./target/${{ matrix.target }}/release/iomark --version
+      - name: Build macOS universal binary
+        if: matrix.universal
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p dist
+          lipo -create \
+            target/aarch64-apple-darwin/release/iomark \
+            target/x86_64-apple-darwin/release/iomark \
+            -output dist/iomark
+          lipo -info dist/iomark
+          ./dist/iomark --version
+      - name: Package artifact
+        env:
+          # On pull_request this is "<pr>/merge" — strip the slash.
+          REF: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          if [ ! -f dist/iomark ]; then
+            cp target/${{ matrix.target }}/release/iomark dist/iomark
+          fi
+          name="iomark-${REF//\//-}-${{ matrix.universal && 'macos-universal' || matrix.target }}"
+          tar -C dist -czf "$name.tar.gz" iomark
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iomark-${{ matrix.universal && 'macos-universal' || matrix.target }}
+          path: iomark-*.tar.gz
+
+  build-windows:
+    name: x86_64-pc-windows-gnu
+    needs: lint
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          # Inherit the Windows PATH so rustup/cargo stay visible in the shell.
+          path-type: inherit
+          install: make mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: cargo build --release --target x86_64-pc-windows-gnu
+      - run: ./target/x86_64-pc-windows-gnu/release/iomark.exe --version
+      - name: Package artifact
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist && cp target/x86_64-pc-windows-gnu/release/iomark.exe dist/
+          cd dist && 7z a "../iomark-${REF//\//-}-x86_64-pc-windows-gnu.zip" iomark.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iomark-x86_64-pc-windows-gnu
+          path: iomark-*.zip
+
+  # Experimental: llvm-mingw toolchain on the ARM64 Windows runner.
+  build-windows-arm64:
+    name: aarch64-pc-windows-gnullvm (experimental)
+    needs: lint
+    runs-on: windows-11-arm
+    continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          path-type: inherit
+          install: make mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-zlib
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-gnullvm
+      - run: CC=clang cargo build --release --target aarch64-pc-windows-gnullvm
+      - run: ./target/aarch64-pc-windows-gnullvm/release/iomark.exe --version
+      - name: Package artifact
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist && cp target/aarch64-pc-windows-gnullvm/release/iomark.exe dist/
+          cd dist && 7z a "../iomark-${REF//\//-}-aarch64-pc-windows-gnullvm.zip" iomark.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iomark-aarch64-pc-windows-gnullvm
+          path: iomark-*.zip
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    # build-windows-arm64 is continue-on-error, so listing it here only makes
+    # the artifact set deterministic — a red arm64 job cannot block a release.
+    needs: [build, build-windows, build-windows-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
