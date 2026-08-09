@@ -278,8 +278,15 @@ do_quick() {
   # curl | sh leaves stdin on the pipe, which would drop iomark into its
   # non-interactive plain renderer — hand it the terminal back when there is
   # one so the TUI runs.
+  #
+  # Duplicate stdout rather than opening /dev/tty: the pipeline only took
+  # stdin away, so fd 1 is still the terminal device this shell inherited. A
+  # fresh /dev/tty descriptor is a terminal too, but on macOS it cannot be
+  # registered with kqueue, and iomark's key-event reader would not start.
   rc=0
-  if (exec </dev/tty) 2>/dev/null; then
+  if [ ! -t 0 ] && [ -t 1 ] && (exec <&1) 2>/dev/null; then
+    "$TMPDIR_SELF/$BIN" "$@" <&1 || rc=$?
+  elif [ ! -t 0 ] && (exec </dev/tty) 2>/dev/null; then
     "$TMPDIR_SELF/$BIN" "$@" </dev/tty || rc=$?
   else
     "$TMPDIR_SELF/$BIN" "$@" || rc=$?

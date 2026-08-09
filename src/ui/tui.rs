@@ -28,6 +28,19 @@ use crate::ui::Outcome;
 /// Content is capped at this width and horizontally centered beyond it.
 const MAX_WIDTH: u16 = 100;
 
+/// Whether crossterm can read key events from this process.
+///
+/// Being attached to a terminal is not enough. crossterm polls the input
+/// descriptor through mio, and on macOS a descriptor opened on `/dev/tty` —
+/// what a `curl | sh` handoff produces — cannot be registered with kqueue
+/// (`EINVAL`), so the reader never starts and every poll fails. crossterm
+/// swallows that at construction time and only reports it on first use, which
+/// would kill a benchmark that is already running; probing up front lets the
+/// caller fall back to the plain renderer instead.
+pub fn input_available() -> bool {
+    poll(Duration::ZERO).is_ok()
+}
+
 pub fn run(
     rx: Receiver<Event>,
     cfg: &Config,

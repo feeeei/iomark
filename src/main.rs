@@ -91,7 +91,19 @@ fn run(cli: Cli) -> Result<ui::Outcome> {
     }
 
     let cfg = runner::Config::from_cli(&cli, target);
-    let warnings = platform_warnings(&cfg);
+    let mut warnings = platform_warnings(&cfg);
+
+    // Pick the renderer before the benchmark starts: a terminal iomark cannot
+    // read keys from must degrade to the plain output, not abort mid-run.
+    let on_terminal =
+        !cli.json && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
+    let interactive = on_terminal && ui::tui::input_available();
+    if on_terminal && !interactive {
+        warnings.push(
+            "this terminal cannot be polled for key events — using the plain renderer".into(),
+        );
+    }
+
     let abort = Arc::new(AbortHandle::default());
     {
         let abort = abort.clone();
@@ -114,8 +126,6 @@ fn run(cli: Cli) -> Result<ui::Outcome> {
         std::thread::spawn(move || runner::run(cfg, tx, abort))
     };
 
-    let interactive =
-        !cli.json && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
     let outcome = if interactive {
         ui::tui::run(rx, &cfg, disk.as_ref(), cli.unit, &abort, &warnings)
     } else {
