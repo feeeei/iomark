@@ -46,6 +46,14 @@ const CONFIGURE_FLAGS: &[&str] = &[
 /// segments (tiny quota on macOS) — mmap memory dies with the process.
 const UNIX_CONFIGURE_FLAGS: &[&str] = &["--disable-shm"];
 
+/// Windows only: libraries MSYS2 ships as both a static archive and an import
+/// library. ld picks the import library, and the released exe then depends on
+/// a DLL that exists only inside an MSYS2 prefix — on any other machine the
+/// loader gives up before `main` with STATUS_DLL_NOT_FOUND and the process
+/// dies without printing anything at all. Win32 import libraries (ws2_32,
+/// psapi, …) are unaffected: they only ever exist as `.a`.
+const WINDOWS_STATIC_LIBS: &[&str] = &["z", "pthread"];
+
 /// Emit the version `--version` reports.
 ///
 /// The git tag is the single source of truth, in this order:
@@ -254,12 +262,27 @@ fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
 /// Translates the fio Makefile's `$(LIBS)` tokens into cargo link directives.
 fn emit_link_libs(libs_cache: &Path) {
     let libs = fs::read_to_string(libs_cache).expect("missing cached fio LIBS");
+    let windows = cfg_windows();
     for token in libs.split_whitespace() {
         if let Some(name) = token.strip_prefix("-l") {
-            println!("cargo:rustc-link-lib={name}");
+            if windows && WINDOWS_STATIC_LIBS.contains(&name) {
+                println!("cargo:rustc-link-lib=static={name}");
+            } else {
+                println!("cargo:rustc-link-lib={name}");
+            }
         } else {
             println!("cargo:rustc-link-arg={token}");
         }
+    }
+    if windows {
+        // The GCC driver appends its own -lwinpthread after every argument
+        // cargo controls, and implicit means dynamic. Link args land at the
+        // end of the command line, so resolving the pthread symbols from the
+        // static archive here leaves that trailing -lwinpthread nothing to
+        // import.
+        println!("cargo:rustc-link-arg=-Wl,-Bstatic");
+        println!("cargo:rustc-link-arg=-lwinpthread");
+        println!("cargo:rustc-link-arg=-Wl,-Bdynamic");
     }
 }
 

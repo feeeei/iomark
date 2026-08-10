@@ -108,6 +108,9 @@ jobs:
           targets: x86_64-pc-windows-gnu
       - run: cargo build --release --target x86_64-pc-windows-gnu
       - run: .github/check-version.sh ./target/x86_64-pc-windows-gnu/release/iomark.exe
+      # This shell has the MSYS2 prefix on PATH, so check-version.sh above
+      # passes even when the exe imports a DLL no user machine will have.
+      - run: .github/check-dlls.sh ./target/x86_64-pc-windows-gnu/release/iomark.exe
       - name: Package artifact
         run: |
           mkdir -p dist && cp target/x86_64-pc-windows-gnu/release/iomark.exe dist/
@@ -140,6 +143,7 @@ jobs:
           targets: aarch64-pc-windows-gnullvm
       - run: CC=clang cargo build --release --target aarch64-pc-windows-gnullvm
       - run: .github/check-version.sh ./target/aarch64-pc-windows-gnullvm/release/iomark.exe
+      - run: .github/check-dlls.sh ./target/aarch64-pc-windows-gnullvm/release/iomark.exe
       - name: Package artifact
         run: |
           mkdir -p dist && cp target/aarch64-pc-windows-gnullvm/release/iomark.exe dist/
