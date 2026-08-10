@@ -82,6 +82,29 @@ pub struct Workload<'a> {
     pub runtime: Duration,
 }
 
+/// Renders a path the way fio's option parser wants to read it back.
+///
+/// fio splits a filename on `:` so one job can list several files, so every
+/// colon in a path has to be escaped with a backslash — on Windows that is the
+/// drive letter, and `D:\x` has to be handed over as `D\:\x` (fio HOWTO).
+/// Unescaped, fio parsed `\\?\D` as the whole filename and died trying to
+/// create `\\?` as its directory.
+///
+/// The `\\?\` in that message is the other half: paths reach us canonicalized,
+/// which on Windows is the verbatim form, and fio's own path handling does not
+/// understand it. Strip it back to an ordinary path first.
+fn fio_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    let path = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        path.into_owned()
+    };
+    path.replace(':', r"\:")
+}
+
 /// Runs a workload to completion. Returns `None` when aborted.
 pub fn run_workload(
     w: &Workload<'_>,
@@ -91,7 +114,7 @@ pub fn run_workload(
     let output = temp_output_path();
     let mut args = vec![
         format!("--name={}-{}", w.spec.id(), w.op.name()),
-        format!("--filename={}", w.file.display()),
+        format!("--filename={}", fio_path(w.file)),
         format!("--size={}", w.size),
         format!("--ioengine={ENGINE}"),
         "--direct=1".into(),
@@ -131,7 +154,7 @@ pub fn prepare_file(file: &Path, size: u64, abort: &AbortHandle) -> Result<bool>
     let output = temp_output_path();
     let args = vec![
         "--name=prepare".to_owned(),
-        format!("--filename={}", file.display()),
+        format!("--filename={}", fio_path(file)),
         format!("--size={size}"),
         "--rw=write".into(),
         // Without overwrite=1, fio's layout for a write job merely fallocates:
@@ -310,6 +333,27 @@ fn temp_output_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escapes_drive_letters_and_drops_the_verbatim_prefix() {
+        // What canonicalize() hands back on Windows, and what fio must see.
+        assert_eq!(
+            fio_path(Path::new(r"\\?\D:\iomark-1234.tmp")),
+            r"D\:\iomark-1234.tmp"
+        );
+        assert_eq!(
+            fio_path(Path::new(r"\\?\UNC\server\share\iomark.tmp")),
+            r"\\server\share\iomark.tmp"
+        );
+    }
+
+    #[test]
+    fn leaves_ordinary_paths_alone() {
+        assert_eq!(
+            fio_path(Path::new("/tmp/iomark-1.tmp")),
+            "/tmp/iomark-1.tmp"
+        );
+    }
 
     #[test]
     fn parses_eta_line_with_rates() {
