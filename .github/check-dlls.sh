@@ -26,8 +26,7 @@ done
 }
 
 # Presence in System32 is the test, rather than a hand-kept allow list: it is
-# exactly the question the loader will ask on the user's machine. The api-ms-win-*
-# API sets are real files there too.
+# close to the question the loader will ask on the user's machine.
 if command -v cygpath >/dev/null 2>&1; then
   system32=$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32
 else
@@ -46,6 +45,15 @@ dlls=$("$dump" -p "$bin" | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//p' | so
 
 foreign=
 for dll in $dlls; do
+  case $(printf '%s' "$dll" | tr 'A-Z' 'a-z') in
+  api-ms-win-* | ext-ms-win-*)
+    # API sets have no file to find: the loader resolves them through the API
+    # set schema and most never exist in System32 at all. The namespace is
+    # reserved by Windows, so the name itself is the guarantee.
+    printf '  ok  %s (API set)\n' "$dll"
+    continue
+    ;;
+  esac
   # -iname, not a plain [ -e ]: an import table spells the name however the
   # import library did (KERNEL32.dll), System32 holds it lowercase, and only
   # NTFS's case-insensitivity would paper over the difference.
