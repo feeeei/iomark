@@ -259,7 +259,12 @@ do_install() {
   mv -f "$TMPDIR_SELF/$BIN" "$target" 2>/dev/null ||
     cp -f "$TMPDIR_SELF/$BIN" "$target" ||
     die "cannot write $target (try --dir, or re-run with sudo)"
-  say "installed $("$target" --version 2>/dev/null | head -n1) -> $target"
+  # Never report success on a binary that cannot start. On Windows a missing
+  # DLL kills the process before main, with no output on either stream, so
+  # without this check a broken build installs quietly.
+  installed=$("$target" --version 2>/dev/null | head -n1) || :
+  [ -n "$installed" ] || die "installed $target but it does not run"
+  say "installed $installed -> $target"
 
   case ":$PATH:" in
   *":$INSTALL_DIR:"*) say "run: iomark" ;;
@@ -292,6 +297,7 @@ do_quick() {
     "$TMPDIR_SELF/$BIN" "$@" || rc=$?
   fi
   say ""
+  [ "$rc" -eq 0 ] || warn "iomark exited with status $rc"
   say "that binary was temporary — install it with:"
   say "  curl -fsSL https://iomark.dev | sh"
   return "$rc"
