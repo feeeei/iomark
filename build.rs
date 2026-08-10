@@ -170,6 +170,7 @@ fn main() {
     // archive link would drop them and fio would find no engines at runtime.
     println!("cargo:rustc-link-lib=static:+whole-archive=fio");
     emit_link_libs(&libs_cache);
+    shadow_static_unwind(&out_dir);
 }
 
 fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
@@ -279,11 +280,44 @@ fn emit_link_libs(libs_cache: &Path) {
         // cargo controls, and implicit means dynamic. Link args land at the
         // end of the command line, so resolving the pthread symbols from the
         // static archive here leaves that trailing -lwinpthread nothing to
-        // import.
+        // import. (Passing -static instead does nothing: rustc writes an
+        // explicit -Wl,-Bdynamic into the middle of the command line, which
+        // overrides the driver option.)
         println!("cargo:rustc-link-arg=-Wl,-Bstatic");
         println!("cargo:rustc-link-arg=-lwinpthread");
         println!("cargo:rustc-link-arg=-Wl,-Bdynamic");
     }
+}
+
+/// The llvm-mingw targets (`*-windows-gnullvm`) link Rust's unwinder as a
+/// plain `-lunwind`, which ld resolves to `libunwind.dll.a` — a DLL that ships
+/// with the toolchain, not with Windows, so the exe dies on a user's machine
+/// exactly like the MSYS2 ones do. rustc emits that `-l` ahead of every
+/// argument cargo controls, so no later `-Bstatic` can reach it.
+///
+/// Shadow it instead. ld tries every suffix within one search directory before
+/// moving on to the next, and `-L` directories come before the toolchain's
+/// own, so a directory holding nothing but the static archive settles it.
+fn shadow_static_unwind(out_dir: &Path) {
+    if !env::var("TARGET").is_ok_and(|t| t.ends_with("-gnullvm")) {
+        return;
+    }
+    let cc = env::var("CC").unwrap_or_else(|_| "clang".into());
+    let printed = Command::new(cc)
+        .arg("-print-file-name=libunwind.a")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_owned()));
+    // -print-file-name echoes the bare name back when it finds nothing.
+    let Some(archive) = printed.filter(|p| p.is_file()) else {
+        println!("cargo:warning=no libunwind.a found; the binary will import libunwind.dll");
+        return;
+    };
+    let dir = out_dir.join("static-unwind");
+    fs::create_dir_all(&dir).unwrap();
+    fs::copy(&archive, dir.join("libunwind.a")).unwrap();
+    println!("cargo:rustc-link-search=native={}", dir.display());
 }
 
 fn print_var(build_dir: &Path, var: &str) -> Vec<String> {

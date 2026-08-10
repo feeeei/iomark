@@ -67,6 +67,6 @@ done
 
 [ -z "$foreign" ] || {
   printf 'error: %s imports DLLs that are not part of Windows:%s\n' "$bin" "$foreign" >&2
-  printf 'link them statically in build.rs (see WINDOWS_STATIC_LIBS)\n' >&2
+  printf 'the Windows link must resolve those from archives — see build.rs\n' >&2
   exit 1
 }
