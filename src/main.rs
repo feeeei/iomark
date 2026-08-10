@@ -6,6 +6,7 @@ mod cli;
 mod disk;
 mod fio;
 mod fio_worker;
+mod paths;
 mod report;
 mod runner;
 mod spec;
@@ -59,10 +60,13 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ui::Outcome> {
-    let target = cli
-        .target
-        .canonicalize()
-        .with_context(|| format!("target directory {} not found", cli.target.display()))?;
+    // Canonicalize to pin the volume down, then undo the Windows verbatim
+    // prefix that comes with it — nothing downstream reads `\\?\` well.
+    let target = paths::simplify(
+        &cli.target
+            .canonicalize()
+            .with_context(|| format!("target directory {} not found", cli.target.display()))?,
+    );
     ensure!(
         target.is_dir(),
         "target {} is not a directory",

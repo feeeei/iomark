@@ -92,17 +92,10 @@ pub struct Workload<'a> {
 ///
 /// The `\\?\` in that message is the other half: paths reach us canonicalized,
 /// which on Windows is the verbatim form, and fio's own path handling does not
-/// understand it. Strip it back to an ordinary path first.
+/// understand it. `main.rs` already strips it, but fio has no plain form to
+/// fall back on, so strip it again here whatever the length.
 fn fio_path(path: &Path) -> String {
-    let path = path.to_string_lossy();
-    let path = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{rest}")
-    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
-        rest.to_owned()
-    } else {
-        path.into_owned()
-    };
-    path.replace(':', r"\:")
+    crate::paths::strip_verbatim(path).replace(':', r"\:")
 }
 
 /// Runs a workload to completion. Returns `None` when aborted.
