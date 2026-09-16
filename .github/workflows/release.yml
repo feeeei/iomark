@@ -19,7 +19,7 @@ jobs:
     name: fmt + clippy + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
@@ -49,7 +49,7 @@ jobs:
             universal: true
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
@@ -81,7 +81,7 @@ jobs:
           # Asset names carry no version: the installer can then fetch
           # /releases/latest/download/<asset> without querying the API.
           tar -C dist -czf "iomark-${{ matrix.asset }}.tar.gz" iomark
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: iomark-${{ matrix.asset }}
           path: iomark-*.tar.gz
@@ -94,7 +94,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: msys2/setup-msys2@v2
@@ -115,7 +115,7 @@ jobs:
         run: |
           mkdir -p dist && cp target/x86_64-pc-windows-gnu/release/iomark.exe dist/
           cd dist && 7z a ../iomark-x86_64-pc-windows-gnu.zip iomark.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: iomark-x86_64-pc-windows-gnu
           path: iomark-*.zip
@@ -130,7 +130,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: msys2/setup-msys2@v2
@@ -148,7 +148,7 @@ jobs:
         run: |
           mkdir -p dist && cp target/aarch64-pc-windows-gnullvm/release/iomark.exe dist/
           cd dist && 7z a ../iomark-aarch64-pc-windows-gnullvm.zip iomark.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: iomark-aarch64-pc-windows-gnullvm
           path: iomark-*.zip
@@ -163,8 +163,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -172,7 +172,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: .github/release-notes.sh artifacts "$TAG" > notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: iomark ${{ github.ref_name }}
           body_path: notes.md
