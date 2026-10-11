@@ -275,9 +275,15 @@ do_install() {
     die "cannot write $target (try --dir, or re-run with sudo)"
   # Never report success on a binary that cannot start. On Windows a missing
   # DLL kills the process before main, with no output on either stream, so
-  # without this check a broken build installs quietly.
-  installed=$("$target" --version 2>/dev/null | head -n1) || :
-  [ -n "$installed" ] || die "installed $target but it does not run"
+  # without this check a broken build installs quietly. Take it back out of
+  # PATH too: left there, it answers the next `iomark` with a loader error
+  # that says nothing about how it got installed.
+  installed=$("$target" --version 2>"$TMPDIR_SELF/stderr" | head -n1) || :
+  if [ -z "$installed" ]; then
+    rm -f "$target"
+    cat "$TMPDIR_SELF/stderr" >&2
+    die "$target does not run on this system, so it was removed again"
+  fi
   say "installed $installed -> $target"
 
   case ":$PATH:" in
