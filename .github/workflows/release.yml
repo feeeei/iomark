@@ -37,12 +37,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux ships fully static musl binaries built in Alpine. A glibc
+          # build inherits the runner's glibc as its floor, and the Ubuntu
+          # 24.04 one would not start on anything older.
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
+            asset: x86_64-unknown-linux-musl
           - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            asset: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
+            asset: aarch64-unknown-linux-musl
           - os: macos-15
             target: aarch64-apple-darwin
             asset: macos-universal
@@ -53,12 +56,27 @@ jobs:
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'Linux'
         with:
           targets: ${{ matrix.target }}${{ matrix.universal && ',x86_64-apple-darwin' || '' }}
-      - name: Install fio build deps (Linux)
+      - name: Build
+        if: runner.os != 'Linux'
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build (Linux, static musl in Alpine)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libaio-dev zlib1g-dev
-      - run: cargo build --release --target ${{ matrix.target }}
+        run: >-
+          docker run --rm -v "$PWD:/src" -w /src
+          -e IOMARK_RELEASE_TAG -e CARGO_TERM_COLOR
+          rust:1-alpine .github/build-musl.sh
+      - name: Assert no shared library dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bin=target/${{ matrix.target }}/release/iomark
+          file "$bin"
+          if readelf -d "$bin" | grep NEEDED; then
+            echo "error: $bin links the shared libraries above" >&2
+            exit 1
+          fi
       - name: Smoke test
         run: .github/check-version.sh ./target/${{ matrix.target }}/release/iomark
       - name: Build macOS universal binary

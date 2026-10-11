@@ -126,8 +126,8 @@ detect_asset() {
   case $os in
   Linux)
     case $arch in
-    x86_64 | amd64) echo iomark-x86_64-unknown-linux-gnu.tar.gz ;;
-    aarch64 | arm64) echo iomark-aarch64-unknown-linux-gnu.tar.gz ;;
+    x86_64 | amd64) echo iomark-x86_64-unknown-linux-musl.tar.gz ;;
+    aarch64 | arm64) echo iomark-aarch64-unknown-linux-musl.tar.gz ;;
     *) die "unsupported Linux architecture: $arch" ;;
     esac
     ;;
@@ -140,6 +140,14 @@ detect_asset() {
     esac
     ;;
   *) die "unsupported platform: $os $arch (see https://github.com/$REPO/releases)" ;;
+  esac
+}
+
+# Releases up to v0.0.6 shipped glibc builds under the -gnu name. Falling back
+# to it keeps `--version <one of those>` working, as their release notes say.
+legacy_asset() {
+  case $1 in
+  *-unknown-linux-musl.tar.gz) echo "${1%-musl.tar.gz}-gnu.tar.gz" ;;
   esac
 }
 
@@ -232,8 +240,14 @@ download() { # -> $TMPDIR_SELF/$BIN
   TMPDIR_SELF=$(mktemp -d 2>/dev/null || mktemp -d -t iomark)
   archive=$TMPDIR_SELF/$ASSET
   say "downloading $ASSET ($VERSION)"
-  fetch "$BASE_URL/$ASSET" "$archive" ||
-    die "download failed: $BASE_URL/$ASSET"
+  if ! fetch "$BASE_URL/$ASSET" "$archive"; then
+    old=$(legacy_asset "$ASSET")
+    [ -n "$old" ] && fetch "$BASE_URL/$old" "$TMPDIR_SELF/$old" 2>/dev/null ||
+      die "download failed: $BASE_URL/$ASSET"
+    say "this release predates the static Linux builds; using $old"
+    ASSET=$old
+    archive=$TMPDIR_SELF/$ASSET
+  fi
   verify "$archive" "$ASSET"
   unpack "$archive" "$TMPDIR_SELF"
   [ -f "$TMPDIR_SELF/$BIN" ] || die "$BIN not found in $ASSET"

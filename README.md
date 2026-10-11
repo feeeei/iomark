@@ -109,6 +109,15 @@ Requirements: Rust 1.89+, `make`, a C compiler, `sh`.
 | Windows x86_64 | build inside an MSYS2 **MINGW64** shell with the `x86_64-pc-windows-gnu` toolchain |
 | Windows ARM64 | experimental: MSYS2 CLANGARM64 + `aarch64-pc-windows-gnullvm` |
 
+A native Linux build links your distro's glibc and libaio, so it only runs on
+systems at least as new. The released Linux binaries are fully static musl
+builds instead, made inside Alpine — reproduce one with Docker:
+
+```sh
+docker run --rm -v "$PWD:/src" -w /src rust:1-alpine .github/build-musl.sh
+# -> target/<arch>-unknown-linux-musl/release/iomark
+```
+
 ## Methodology
 
 Tasks run in order; each task measures read first, then write (CDM instead

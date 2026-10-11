@@ -16,8 +16,8 @@ mv ../SHA256SUMS .
 
 platform_of() {
   case $1 in
-  *x86_64-unknown-linux-gnu*) echo 'Linux x86_64' ;;
-  *aarch64-unknown-linux-gnu*) echo 'Linux ARM64' ;;
+  *x86_64-unknown-linux-musl*) echo 'Linux x86_64' ;;
+  *aarch64-unknown-linux-musl*) echo 'Linux ARM64' ;;
   *macos-universal*) echo 'macOS (Apple Silicon + Intel)' ;;
   *x86_64-pc-windows-gnu*) echo 'Windows x86_64' ;;
   *aarch64-pc-windows-gnullvm*) echo 'Windows ARM64 (experimental)' ;;
@@ -65,10 +65,10 @@ cat <<EOF
 Manual download, verify and run (Linux x86_64 shown):
 
 \`\`\`sh
-curl -fsSLO $base/iomark-x86_64-unknown-linux-gnu.tar.gz
+curl -fsSLO $base/iomark-x86_64-unknown-linux-musl.tar.gz
 curl -fsSLO $base/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
-tar xzf iomark-x86_64-unknown-linux-gnu.tar.gz
+tar xzf iomark-x86_64-unknown-linux-musl.tar.gz
 ./iomark
 \`\`\`
 

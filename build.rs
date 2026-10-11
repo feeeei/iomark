@@ -144,8 +144,9 @@ fn main() {
     // Rebuild when the configure flags or the fio sources change, not only
     // when libfio.a is gone.
     let fingerprint = format!(
-        "{} {} unix={} fio={}",
+        "{} cflags={} {} unix={} fio={}",
         CONFIGURE_FLAGS.join(" "),
+        extra_cflags(),
         env::var("CC").unwrap_or_default(),
         cfg_unix(),
         fio_source_identity(&fio_src),
@@ -179,24 +180,13 @@ fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
         fs::remove_dir_all(build_dir).expect("failed to clean fio build dir");
     }
     copy_tree(fio_src, build_dir);
-
-    let mut extra_cflags = String::from("-fPIC");
-    if let Some(arch) = apple_cross_arch() {
-        // Cross-building the other macOS architecture on the same host.
-        extra_cflags.push_str(&format!(" -arch {arch}"));
-    }
-    if cfg_windows() && env::var("CC").is_ok_and(|cc| cc.contains("clang")) {
-        // MSYS2's posix-threads GCC links libwinpthread implicitly; MinGW
-        // clang does not, so without -pthread every pthread/clock_gettime
-        // configure probe fails to link and configure aborts.
-        extra_cflags.push_str(" -pthread");
-    }
+    drop_kernel_prctl_include(build_dir);
 
     let mut configure = Command::new("sh");
     configure
         .arg("./configure")
         .args(CONFIGURE_FLAGS)
-        .arg(format!("--extra-cflags={extra_cflags}"))
+        .arg(format!("--extra-cflags={}", extra_cflags()))
         .current_dir(build_dir);
     if cfg_unix() {
         configure.args(UNIX_CONFIGURE_FLAGS);
@@ -260,13 +250,37 @@ fn build_libfio(fio_src: &Path, build_dir: &Path, libs_cache: &Path) {
     fs::write(libs_cache, libs.join(" ")).unwrap();
 }
 
+/// The `--extra-cflags` fio is configured with. Part of the rebuild
+/// fingerprint: a flag added here must not keep linking stale objects.
+fn extra_cflags() -> String {
+    let mut cflags = String::from("-fPIC");
+    if let Some(arch) = apple_cross_arch() {
+        // Cross-building the other macOS architecture on the same host.
+        cflags.push_str(&format!(" -arch {arch}"));
+    }
+    if cfg_windows() && env::var("CC").is_ok_and(|cc| cc.contains("clang")) {
+        // MSYS2's posix-threads GCC links libwinpthread implicitly; MinGW
+        // clang does not, so without -pthread every pthread/clock_gettime
+        // configure probe fails to link and configure aborts.
+        cflags.push_str(" -pthread");
+    }
+    if cfg_musl() && env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|arch| arch == "aarch64") {
+        // GCC defaults to outline atomics on aarch64: every atomic becomes a
+        // call to a libgcc helper (`__aarch64_ldadd8_sync`, …). rustc links
+        // musl binaries without libgcc, so those calls stay unresolved.
+        cflags.push_str(" -mno-outline-atomics");
+    }
+    cflags
+}
+
 /// Translates the fio Makefile's `$(LIBS)` tokens into cargo link directives.
 fn emit_link_libs(libs_cache: &Path) {
     let libs = fs::read_to_string(libs_cache).expect("missing cached fio LIBS");
     let windows = cfg_windows();
+    let musl = cfg_musl();
     for token in libs.split_whitespace() {
         if let Some(name) = token.strip_prefix("-l") {
-            if windows && WINDOWS_STATIC_LIBS.contains(&name) {
+            if musl || (windows && WINDOWS_STATIC_LIBS.contains(&name)) {
                 println!("cargo:rustc-link-lib=static={name}");
             } else {
                 println!("cargo:rustc-link-lib={name}");
@@ -320,6 +334,20 @@ fn shadow_static_unwind(out_dir: &Path) {
     println!("cargo:rustc-link-search=native={}", dir.display());
 }
 
+/// fio 3.42's backend.c includes `<linux/prctl.h>` ahead of `<sys/prctl.h>`.
+/// glibc's header pulls the kernel one in by itself, but musl's spells out
+/// `struct prctl_mm_map` on its own, so on musl the pair is a redefinition
+/// error. Upstream fio has since dropped the kernel include; do the same to
+/// the copy. Once the submodule moves past 3.42 there is nothing to replace.
+fn drop_kernel_prctl_include(build_dir: &Path) {
+    let path = build_dir.join("backend.c");
+    let src = fs::read_to_string(&path).expect("backend.c missing from the fio tree");
+    let patched = src.replace("#include <linux/prctl.h>\n", "");
+    if patched != src {
+        fs::write(&path, patched).unwrap();
+    }
+}
+
 fn print_var(build_dir: &Path, var: &str) -> Vec<String> {
     let out = Command::new("make")
         .args(["-s", "-f", "printvar.mk", &format!("print-{var}")])
@@ -369,6 +397,15 @@ fn cfg_unix() -> bool {
 /// True when the *target* (not the build host) is Windows.
 fn cfg_windows() -> bool {
     env::var("CARGO_CFG_WINDOWS").is_ok()
+}
+
+/// True when the *target* links against musl — what the Linux release ships.
+/// Those binaries are fully static, so every library fio asks for has to come
+/// from its archive. A dynamic libaio is half of what tied the old glibc
+/// builds to one distro release: Ubuntu 24.04 renamed its soname to
+/// `libaio.so.1t64`, which no older system has.
+fn cfg_musl() -> bool {
+    env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|env| env == "musl")
 }
 
 /// Removes an `output_sym`'d `NAME=y` line from the generated
