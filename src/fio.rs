@@ -80,6 +80,7 @@ pub struct Workload<'a> {
     pub file: &'a Path,
     pub size: u64,
     pub runtime: Duration,
+    pub direct: bool,
 }
 
 /// Renders a path the way fio's option parser wants to read it back.
@@ -110,7 +111,7 @@ pub fn run_workload(
         format!("--filename={}", fio_path(w.file)),
         format!("--size={}", w.size),
         format!("--ioengine={ENGINE}"),
-        "--direct=1".into(),
+        format!("--direct={}", u8::from(w.direct)),
         "--randrepeat=0".into(),
         // Jobs as threads (CDM's T semantics) and one process to kill on abort.
         "--thread".into(),

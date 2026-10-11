@@ -26,10 +26,13 @@ pub struct Config {
     pub duration: Duration,
     pub warmup: Duration,
     pub interval: Duration,
+    /// Bypass the page cache (`--direct=1`). Off only on a tmpfs that refuses
+    /// O_DIRECT, where there is no disk behind the cache to reach.
+    pub direct: bool,
 }
 
 impl Config {
-    pub fn from_cli(cli: &Cli, target: PathBuf) -> Self {
+    pub fn from_cli(cli: &Cli, target: PathBuf, direct: bool) -> Self {
         Config {
             tasks: cli.tasks.clone(),
             target,
@@ -38,6 +41,7 @@ impl Config {
             duration: cli.duration,
             warmup: cli.warmup,
             interval: cli.interval,
+            direct,
         }
     }
 
@@ -157,6 +161,7 @@ fn run_operation(
         file: &file.path,
         size: cfg.size,
         runtime,
+        direct: cfg.direct,
     };
 
     if !cfg.warmup.is_zero() {
@@ -299,6 +304,7 @@ mod tests {
             duration: Duration::from_secs(1),
             warmup: Duration::ZERO,
             interval: Duration::ZERO,
+            direct: true,
         };
         let cells = cfg.cells();
         let ops: Vec<(usize, Op)> = cells.iter().map(|c| (c.task, c.op)).collect();

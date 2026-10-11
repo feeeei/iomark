@@ -1,4 +1,5 @@
-//! Disk information for the header line and the free-space safety check.
+//! Disk information for the header line and the free-space safety check, plus
+//! the probe for whether the filesystem takes direct I/O at all.
 //!
 //! Identifies the volume hosting the target directory the way `df` would:
 //! mount source (device node or network share), volume name where the
@@ -39,6 +40,36 @@ impl DiskInfo {
 /// Describes the volume hosting `path` (which must be canonicalized).
 pub fn lookup(path: &Path) -> Option<DiskInfo> {
     imp::lookup(path)
+}
+
+/// Whether the filesystem accepts direct I/O, probed by creating `probe` (a
+/// scratch path iomark owns) with `O_DIRECT`. Linux filesystems may refuse
+/// the flag at open time with EINVAL — tmpfs before Linux 6.6, many FUSE
+/// mounts — and fio then dies on its first measured run.
+#[cfg(target_os = "linux")]
+pub fn direct_io_supported(probe: &Path) -> std::io::Result<bool> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let opened = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(libc::O_DIRECT)
+        .open(probe);
+    // Even a refused open leaves the file behind: the kernel only checks
+    // O_DIRECT once the inode exists.
+    let _ = std::fs::remove_file(probe);
+    match opened {
+        Ok(_) => Ok(true),
+        Err(e) if e.raw_os_error() == Some(libc::EINVAL) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Only Linux refuses direct I/O at open time. fio's macOS (`F_NOCACHE`) and
+/// Windows (`FILE_FLAG_NO_BUFFERING`) equivalents have no refusal to probe.
+#[cfg(not(target_os = "linux"))]
+pub fn direct_io_supported(_probe: &Path) -> std::io::Result<bool> {
+    Ok(true)
 }
 
 #[cfg(target_os = "macos")]

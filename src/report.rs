@@ -30,6 +30,8 @@ struct WorkloadReport<'a> {
     disk: Option<DiskReport<'a>>,
     size_bytes: u64,
     engine: &'static str,
+    /// False only on a tmpfs that refuses O_DIRECT, which runs buffered.
+    direct: bool,
     fio_version: &'a str,
 }
 
@@ -106,6 +108,7 @@ pub fn ndjson_line(result: &OpResult, cfg: &Config, disk: Option<&DiskInfo>) -> 
         }),
         size_bytes: cfg.size,
         engine: fio::ENGINE,
+        direct: cfg.direct,
         fio_version: crate::fio_version(),
     };
     serde_json::to_string(&report).expect("report serialization cannot fail")
@@ -134,6 +137,7 @@ mod tests {
             duration: Duration::from_secs(5),
             warmup: Duration::from_secs(5),
             interval: Duration::from_secs(5),
+            direct: true,
         };
         let sample = RunSample {
             bytes_per_sec: 14_721_860_000.0,
@@ -168,6 +172,7 @@ mod tests {
         assert_eq!(value["disk"]["volume"], "Macintosh HD - Data");
         assert_eq!(value["disk"]["file_system"], "apfs");
         assert_eq!(value["disk"]["total_bytes"], 500);
+        assert_eq!(value["direct"], true);
 
         let line = ndjson_line(&result, &cfg, None);
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();

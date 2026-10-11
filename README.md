@@ -129,7 +129,12 @@ of data up front (no sparse-file shortcuts) and deleted on exit — including
 on Ctrl-C.
 
 Per-platform fio engines: `libaio` (Linux), `posixaio` (macOS), `windowsaio`
-(Windows), always with `direct=1`.
+(Windows), always with `direct=1` — with one exception: tmpfs (`/dev/shm`)
+refuses `O_DIRECT` before Linux 6.6, so there iomark runs buffered and says
+so. tmpfs lives in RAM, so there is no disk to bypass the cache for; newer
+kernels accept `O_DIRECT` on tmpfs and do buffered I/O anyway. Any other
+filesystem that refuses `O_DIRECT` is rejected up front, since buffered
+results would measure RAM rather than the disk.
 
 ### Comparability notes
 

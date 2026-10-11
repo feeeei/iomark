@@ -94,7 +94,25 @@ fn run(cli: Cli) -> Result<ui::Outcome> {
         );
     }
 
-    let cfg = runner::Config::from_cli(&cli, target);
+    // Direct I/O is what makes iomark measure the disk rather than the page
+    // cache. tmpfs has no disk behind its page cache: Linux 6.6+ accepts
+    // O_DIRECT there and does buffered I/O anyway, older kernels refuse it at
+    // open time. Run tmpfs buffered instead of failing; anywhere else, a run
+    // without direct I/O would measure RAM and pass it off as the disk.
+    let direct = disk::direct_io_supported(&runner::test_file_path(&target))
+        .with_context(|| format!("cannot create test file in {}", target.display()))?;
+    if !direct {
+        let file_system = disk.as_ref().map(|d| d.file_system.as_str());
+        ensure!(
+            file_system == Some("tmpfs"),
+            "{} ({}) does not support direct I/O (O_DIRECT); without it iomark \
+             would measure the page cache instead of the disk",
+            target.display(),
+            file_system.unwrap_or("unknown filesystem"),
+        );
+    }
+
+    let cfg = runner::Config::from_cli(&cli, target, direct);
     let mut warnings = platform_warnings(&cfg);
 
     // Pick the renderer before the benchmark starts: a terminal iomark cannot
@@ -162,6 +180,12 @@ fn run(cli: Cli) -> Result<ui::Outcome> {
 /// Platform quirks worth surfacing next to the results.
 fn platform_warnings(cfg: &runner::Config) -> Vec<String> {
     let mut warnings = Vec::new();
+    if !cfg.direct {
+        warnings.push(
+            "tmpfs refuses direct I/O before Linux 6.6 — running buffered; tmpfs is RAM either way"
+                .into(),
+        );
+    }
     if let Some(limit) = macos_aio_limit()
         && cfg
             .tasks
